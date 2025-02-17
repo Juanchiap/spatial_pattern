@@ -1,0 +1,1349 @@
+---
+title: "Spatial analysis"
+author: "Juan A Paredes"
+format: 
+  html:
+    self-contained: true
+    fig-width: 6
+    fig-height: 4
+editor: visual
+warning: false
+editor_options: 
+  chunk_output_type: console
+---
+
+## Package
+
+```{r}
+pacman::p_load(tidyverse, 
+  rio,
+  emmeans,
+  DHARMa,
+  patchwork,
+  lme4,
+  ggpubr,
+  spdep,
+  ncf,
+  kableExtra,
+  performance,
+  gridExtra,
+  grid,
+  epiphy,
+  vegan
+  )
+
+conflicted::conflict_prefer("filter", "dplyr")
+conflicted::conflict_prefer("select", "dplyr")
+conflicted::conflicts_prefer(pliman::`%>%`)
+```
+
+# 3.1. Small-scale plots
+
+Data collection from small-scale plots in Ballesteros (Ball), Villa María (VM), and General Deheza (GD), collected in 2020, plot 12 by 20
+
+```{r}
+Ball <- rio::import("https://docs.google.com/spreadsheets/d/1T6qTBM1SvlUrt_GGYvd8u1eHY2d9NZKCeP5a-wj-T9k/edit?gid=1686489302#gid=1686489302") 
+Ball <- Ball %>%
+  group_by(n_sample, x, y) %>%
+    summarise(total_pods = sum(total_pods, na.rm = T),
+              # samples = length(levels(bk)),
+              n_1 = sum(class_1, na.rm = T), 
+              n_2 = sum(class_2, na.rm = T), 
+              n_3 = sum(class_3, na.rm = T), 
+              n_4 = sum(class_4, na.rm = T), 
+              dis_pods = sum(n_1+n_2+n_3+n_4, na.rm = T ), 
+              inc = (dis_pods/total_pods*100), 
+              SDP = ((n_3+n_4)/total_pods*100), 
+              DSI = ((n_1+n_2*2+n_3*3+n_4*4)/(total_pods*4/100)), 
+              ) %>% ungroup()
+
+Ball_inc<-  Ball %>% 
+  select("n_sample","x", "y", "inc")|> 
+  mutate(inc= round(inc, digits = 0)) %>%
+  mutate(i=n_sample) %>% ungroup()
+
+VM <- rio::import("https://docs.google.com/spreadsheets/d/1T6qTBM1SvlUrt_GGYvd8u1eHY2d9NZKCeP5a-wj-T9k/edit?gid=1692024554#gid=1692024554")
+VM <- VM %>%
+  group_by(n_sample, x, y) %>%
+    summarise(total_pods = sum(total_pods, na.rm = T),
+              # samples = length(levels(bk)),
+              n_1 = sum(class_1, na.rm = T), 
+              n_2 = sum(class_2, na.rm = T), 
+              n_3 = sum(class_3, na.rm = T), 
+              n_4 = sum(class_4, na.rm = T), 
+              dis_pods = sum(n_1+n_2+n_3+n_4, na.rm = T ), 
+              inc = (dis_pods/total_pods*100), 
+              SDP = ((n_3+n_4)/total_pods*100), 
+              DSI = ((n_1+n_2*2+n_3*3+n_4*4)/(total_pods*4/100)), 
+              )%>% ungroup()
+
+VM_df <- VM %>% select("n_sample","x", "y", "inc")
+VM_inc<- VM_df |> 
+  mutate(inc= round(inc, digits = 0)) %>%
+  mutate(i=n_sample) 
+
+GD <- rio::import("https://docs.google.com/spreadsheets/d/1T6qTBM1SvlUrt_GGYvd8u1eHY2d9NZKCeP5a-wj-T9k/edit?gid=1620537928#gid=1620537928")
+GD <- GD %>%
+  group_by(n_sample, x, y) %>%
+    summarise(total_pods = sum(total_pods, na.rm = T),
+              # samples = length(levels(bk)),
+              n_1 = sum(class_1, na.rm = T), 
+              n_2 = sum(class_2, na.rm = T), 
+              n_3 = sum(class_3, na.rm = T), 
+              n_4 = sum(class_4, na.rm = T), 
+              dis_pods = sum(n_1+n_2+n_3+n_4, na.rm = T ), 
+              inc = (dis_pods/total_pods*100), 
+              SDP = ((n_3+n_4)/total_pods*100), 
+              DSI = ((n_1+n_2*2+n_3*3+n_4*4)/(total_pods*4/100)), 
+              )%>% ungroup()
+
+GD_df <- GD %>% select("n_sample","x", "y", "inc")
+GD_inc<- GD_df |> 
+  mutate(inc= round(inc, digits = 0)) %>%
+  mutate(i=n_sample) 
+
+```
+
+## 3.1.1. Disease incidence 
+Plot the incidence
+
+```{r}
+combined_data <- rbind(
+  transform(Ball_inc, field = "Field 1"),
+  transform(VM_inc, field = "Field 2"),
+  transform(GD_inc, field = "Field 3")
+)
+
+mean_values <- combined_data %>%
+  group_by(field) %>%
+  summarize(mean_inc = mean(inc, na.rm = TRUE))
+
+ggplot(combined_data, aes(x, y, label = inc, fill = inc)) +
+  geom_tile() +
+  theme_void() +
+   # geom_text(aes(label = round(inc, 1)), size = 3, color = "black") + 
+  scale_fill_gradient2(low = "gray98", mid = "darkred", high = "black",
+                       midpoint = 50,
+                       name = "Incidence (%)", 
+                       labels = c("0", "100"),
+                       limits = c(0, 100),
+                       breaks = c(0, 100)) +
+  facet_wrap(~field, ncol = 3) +  
+   expand_limits(x = 0, y =  -1.5) + # Ajusta límites
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(size = 16)  
+  )+
+  geom_text(data = mean_values, 
+            aes(x = Inf, y = -Inf, label = paste("Mean:", round(mean_inc, 1))), 
+            hjust = 1.1, vjust = -.5, size = 5, color = "black", inherit.aes = FALSE)
+
+
+# ggsave(w=150,h=100, units="mm", dpi = 300, "Manuscript/plot/paper/small_Scale.jpg")
+```
+
+## Descriptive Statistics
+```{r}
+combined_data1 <- rbind(
+  transform(Ball, field = "Field 1"),
+  transform(VM, field = "Field 2"),
+  transform(GD, field = "Field 3")
+)
+
+summary_table <- combined_data1 %>%
+   # mutate(inc= round(inc, digits = 0)) %>%
+  group_by(field) %>%
+  summarize(
+    n = n(),
+    median_pods = median(total_pods, na.rm = TRUE),
+    range_pods = paste(min(total_pods, na.rm = TRUE), "-", max(total_pods, na.rm = TRUE,digits = 0)),
+    mean_inc = mean(inc, na.rm = TRUE),
+   range_inc = paste0(round(min(inc, na.rm = TRUE), 1), " - ", round(max(inc, na.rm = TRUE), 1)),
+    variance_inc = var(inc, na.rm = TRUE),
+    sd_inc = sd(inc, na.rm = TRUE),
+    median_inc = median(inc, na.rm = TRUE),
+  ) 
+
+kable(summary_table, 
+      col.names = c("Field", "N", "Median Sample", "Range (Min - Max)",  
+                    "Mean Incidence (%)","Range incidence (Min - Max)", "Variance", "Standard Deviation", 
+                    "Median Incidence"),
+      digits = 1) %>%
+  kable_styling(
+    bootstrap_options = c("striped", 
+                          # "hover", "condensed",
+                          "responsive"
+                          ),
+                # full_width = F,
+                position = "center") %>%
+  # column_spec(2:9, width = "10em", border_right = TRUE) %>%  # Adjust column widths and add borders
+  row_spec(0, bold = TRUE, background = "#D3D3D3") 
+
+```
+
+In all the small-plot, the variance is higher than the mean.\
+If the variance is similar to the mean, the distribution is likely random. If the variance is much smaller than the mean, the distribution may be regular (evenly spaced, or uniform).
+
+Test for overdispersion
+
+```{r}
+Ball_model <- glm(cbind(dis_pods, total_pods - dis_pods) ~ 1,
+                family = binomial,
+                data = Ball)
+simulationOutput <- simulateResiduals(fittedModel = Ball_model)
+testDispersion(simulationOutput)
+plot(simulationOutput)
+check_overdispersion(Ball_model)
+
+
+VM_model <- glm(cbind(dis_pods, total_pods - dis_pods) ~ 1,
+                family = binomial,
+                data = VM)
+simulationOutput <- simulateResiduals(fittedModel = VM_model)
+testDispersion(simulationOutput)
+plot(simulationOutput)
+check_overdispersion(VM_model)
+
+GD_model <- glm(cbind(dis_pods, total_pods - dis_pods) ~ 1,
+                family = binomial,
+                data = GD)
+simulationOutput <- simulateResiduals(fittedModel = GD_model)
+testDispersion(simulationOutput)
+plot(simulationOutput)
+check_overdispersion(GD_model)
+
+```
+
+Ball was non-overdispersed, meanwhile VM and GD were overdispersed, suggesting the Field Ball is random.
+
+## 3.1.2. Dispersion indexes
+
+Fisher method and Morisitas index D \< 1 indicates a regular spatial pattern; D = 1 indicates a random pattern; and D\>1 indicates an aggregated pattern. A χ2 test was performed to test if D = 1. Morisita between 0 and 1, aggregated pattern for values \>1, and random pattern for values =1.
+
+```{r}
+inc_Ball <- Ball_inc%>%
+  mutate(n = 100 , i = inc)  %>%
+  epiphy::incidence(mapping(x = x, y = y,i = inc))
+
+inc_VM <- VM_inc%>% 
+  mutate(n = 100 , i = inc)  %>% 
+  epiphy::incidence(mapping(x = x, y = y,i = inc)) 
+
+inc_GD <- GD_inc%>% 
+  mutate(n = 100 , i = inc)  %>% 
+  epiphy::incidence(mapping(x = x, y = y,i = inc))
+```
+
+```{r}
+z <- inc_Ball$data$i
+mor_Ball <- dispindmorisita(z)
+mor_Ball
+
+z <- inc_VM$data$i
+mor_VM <- dispindmorisita(z)
+mor_VM
+
+z <- inc_GD$data$i
+mor_GD <- dispindmorisita(z)
+mor_GD
+
+mor_Ball
+mor_VM
+mor_GD
+```
+
+Morisita's coefficient of dispersion (M) (Version for incidence data) 1.60, 2.09, 1.134, respectivelly
+Follow this index, all the small-plot corresponds to an aggregate pattern
+
+
+## 3.1.3.Spatial autocorrelation
+
+Global Moran test: The correlation score is between -1 and 1. Much like a correlation coefficient, 1 determines perfect positive spatial autocorrelation (so our data is clustered), 0 identifies the data is randomly distributed and -1 represents negative spatial autocorrelation (so dissimilar values are next to each other).
+
+Create a list of neighbors and the weights
+
+```{r}
+neighbors_list <- cell2nb(12,20, type = "queen", torus = F)# torus should be T or F (T consider the edge effects)?? and type "queen" indicate the type of neighbour relation 
+neighbors_list
+weights_list <- nb2listw(neighbors_list, style = "W")#For style="W", the weights vary between unity divided by the largest and smallest numbers of neighbours, and the sums of weights for each areal entity are unity
+```
+
+```{r}
+moran_test <- moran.test(Ball$inc, listw = weights_list)
+moran_test
+moran.plot(x = Ball$inc, listw = nb2listw(neighbors_list, style = "W"))
+
+moran_test <- moran.test(VM$inc, listw = weights_list)
+moran_test
+moran.plot(x = VM$inc, listw = nb2listw(neighbors_list, style = "W"))
+
+moran_test <- moran.test(GD$inc, listw = weights_list)
+moran_test
+moran.plot(x = GD$inc, listw = nb2listw(neighbors_list, style = "W"))
+```
+
+The glorbal Moran I statistic is 0.025, 0.06, and 0.06, respectively. Therefore, determine that there our qualification variable is positively autocorrelated, the data does spatially cluster. The p-value consider the statistical significance of each model.
+
+Interpreting the Value: A z-score (or standard deviation deviate) of 0.8802 means the observed Moran’s I is about 0.88 standard deviations above the expected value under the null hypothesis (approximately 0). Implication for Significance: A low z-score close to 0 indicates that the observed value isn’t significantly different from what is expected under random conditions. Usually, z-scores around ±1.96 or higher (corresponding to a 5% significance level) are needed to suggest a statistically significant result. Connection to p-value: The associated p-value (0.1894) reflects this, showing that the deviation isn’t statistically significant. Therefore, a standard deviation deviate of 0.8802 suggests that the observed spatial autocorrelation is weak and likely due to random variation.
+
+```{r}
+moran(x = Ball$inc, # numeric vector
+      listw = weights_list, # the nb list
+      n = 240, # number of zones
+      S0 = Szero(weights_list)) # global sum of weights
+
+moran(x = VM$inc, # numeric vector
+      listw = weights_list, # the nb list
+      n = 240, # number of zones
+      S0 = Szero(weights_list)) # global sum of weights
+
+moran(x = GD$inc, # numeric vector
+      listw = weights_list, # the nb list
+      n = 240, # number of zones
+      S0 = Szero(weights_list)) # global sum of weights
+
+```
+
+If the data is leptokurtic (K \> 3), it might suggest that there are some hotspots or cold spots (clusters of high or low values) in the spatial dataset. On the other hand, platykurtic (K \< 3) data might indicate a more even spread without pronounced clusters.
+
+
+Spatial correlogram
+```{r}
+correl_I <- sp.correlogram(neighbors_list, Ball$inc, 
+                           order = 10,
+                           method = "I",  
+                           zero.policy = TRUE)
+
+df_correl <- data.frame(correl_I$res) |> 
+  mutate(lag = c(1:10))
+
+correl_Ball <- df_correl |>
+  ggplot(aes(lag, X1)) +
+  geom_col(fill = "darkred") +
+  scale_x_continuous(n.breaks =10) +
+  labs(subtitle = "Field 1") +
+  theme(panel.grid.minor = element_blank())+
+  theme(plot.subtitle = element_text(hjust = 0.5,vjust = -1.5, size = 14))+
+   ylim(-0.06,0.07)+
+  theme_bw()+
+  theme(
+    plot.margin = unit(c(0, 0, 0, 0), "cm"),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 8),
+    legend.position = "none"
+  )+
+  labs(x = "Distance lag", y = "Autocorrelation coefficients")
+
+
+correl_I <- sp.correlogram(neighbors_list, VM$inc, 
+                           order = 10,
+                           method = "I",  
+                           zero.policy = TRUE)
+
+df_correl <- data.frame(correl_I$res) |> 
+  mutate(lag = c(1:10))
+
+correl_VM <- df_correl |>
+  ggplot(aes(lag, X1)) +
+  geom_col(fill = "darkred") +
+  scale_x_continuous(n.breaks =10) +
+  labs(subtitle = "Field 2") +
+  theme(panel.grid.minor = element_blank())+
+  theme(plot.subtitle = element_text(hjust = 0.5,vjust = -1.5, size = 14))+
+   ylim(-0.06,0.07)+
+  theme_bw()+
+  theme(
+    plot.margin = unit(c(0, 0, 0, 0), "cm"),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 8),
+    legend.position = "none"
+  )+
+  labs(x = "Distance lag", y = "")
+
+correl_I <- sp.correlogram(neighbors_list, GD$inc, 
+                           order = 10,
+                           method = "I",  
+                           zero.policy = TRUE)
+
+df_correl <- data.frame(correl_I$res) |> 
+  mutate(lag = c(1:10))
+
+correl_GD <- df_correl |>
+  ggplot(aes(lag, X1)) +
+  geom_col(fill = "darkred") +
+  scale_x_continuous(n.breaks =10) +
+  labs(subtitle = "Field 3") +
+  theme(panel.grid.minor = element_blank())+
+  theme(plot.subtitle = element_text(hjust = 0.5,vjust = -1.5, size = 14))+
+  ylim(-0.06,0.07)+
+  theme_bw()+
+  theme(
+    plot.margin = unit(c(0, 0, 0, 0), "cm"),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 8),
+    legend.position = "none"
+  )+
+  labs(x = "Distance lag", y = "")
+
+
+correl_Ball|correl_VM|correl_GD
+
+# ggsave(w=150,h=60, units="mm", dpi = 300, "plot/paper/autocorrleation_small_Scale.jpg")
+```
+
+
+## 3.1.4. SADIE
+
+```{r}
+Ball_SADIE <- Ball %>% dplyr::select("x", "y", "inc")
+VM_SADIE <- VM %>% dplyr::select("x", "y", "inc")
+GD_SADIE <- GD %>% select("x", "y", "inc")
+
+my_res_Ball <- sadie(Ball_SADIE,
+                     # nperm = 1000
+                     )
+summary(my_res_Ball)
+
+plot(my_res_Ball)
+
+my_res_VM <- sadie(VM_SADIE,
+                     # nperm = 1000
+                   )
+summary(my_res_VM)
+
+my_res_GD <- sadie(GD_SADIE)
+summary(my_res_GD)
+
+g1 <-  grid.grabExpr(plot(my_res_Ball))
+g2 <-  grid.grabExpr(plot(my_res_VM))
+g3 <-  grid.grabExpr(plot(my_res_GD))
+
+g4 <-  grid.grabExpr(plot(my_res_Ball, isoclines = TRUE))
+g5 <-  grid.grabExpr(plot(my_res_VM, isoclines = TRUE))
+g6 <-  grid.grabExpr(plot(my_res_GD, isoclines = TRUE))
+
+col_titles <- arrangeGrob(
+  textGrob("Field 1", gp = gpar(fontsize = 18, fontface = "bold"), hjust = 1),
+  textGrob("Field 2", gp = gpar(fontsize = 18, fontface = "bold"), hjust = 1),
+  textGrob("Field 3", gp = gpar(fontsize = 18, fontface = "bold"), hjust = 1),
+  ncol = 3
+)
+
+# Arrange the plots with the column titles
+SADIE_small <- grid.arrange(
+  col_titles,
+  arrangeGrob(g1, g2, g3, g4, g5, g6, ncol = 3),
+  heights = c(0.025, 1) # Adjust height for the title row
+)
+
+# Save the combined plot
+# ggsave(
+#   filename = "Manuscript/plot/paper/SADIE_small-scale.jpg",
+#   plot = SADIE_small,
+#   width = 350,
+#   height = 255,
+#   units = "mm",
+#   dpi = 300
+# )
+
+```
+
+# 3.2. Large-scale plots
+
+```{r}
+LP21 <- rio::import("https://docs.google.com/spreadsheets/d/1T6qTBM1SvlUrt_GGYvd8u1eHY2d9NZKCeP5a-wj-T9k/edit?gid=449436777#gid=449436777") 
+LP21 <- LP21 %>%
+  group_by(n_sample, x, y) %>%
+    summarise(total_pods = sum(total_pods, na.rm = T),
+              # samples = length(levels(bk)),
+              n_1 = sum(class_1, na.rm = T), 
+              n_2 = sum(class_2, na.rm = T), 
+              n_3 = sum(class_3, na.rm = T), 
+              n_4 = sum(class_4, na.rm = T), 
+              dis_pods = sum(n_1+n_2+n_3+n_4, na.rm = T ), 
+              inc = (dis_pods/total_pods*100), 
+              SDP = ((n_3+n_4)/total_pods*100), 
+              DSI = ((n_1+n_2*2+n_3*3+n_4*4)/(total_pods*4/100)), 
+              )%>% ungroup()
+
+LT21 <- rio::import("https://docs.google.com/spreadsheets/d/1T6qTBM1SvlUrt_GGYvd8u1eHY2d9NZKCeP5a-wj-T9k/edit?gid=708933306#gid=708933306") 
+LT21 <- LT21 %>%
+  group_by(n_sample, x, y) %>%
+    summarise(total_pods = sum(total_pods, na.rm = T),
+              # samples = length(levels(bk)),
+              n_1 = sum(class_1, na.rm = T), 
+              n_2 = sum(class_2, na.rm = T), 
+              n_3 = sum(class_3, na.rm = T), 
+              n_4 = sum(class_4, na.rm = T), 
+              dis_pods = sum(n_1+n_2+n_3+n_4, na.rm = T ), 
+              inc = (dis_pods/total_pods*100), 
+              SDP = ((n_3+n_4)/total_pods*100), 
+              DSI = ((n_1+n_2*2+n_3*3+n_4*4)/(total_pods*4/100)), 
+              )%>% ungroup()
+
+LP22 <- rio::import("https://docs.google.com/spreadsheets/d/1T6qTBM1SvlUrt_GGYvd8u1eHY2d9NZKCeP5a-wj-T9k/edit?gid=62908942#gid=62908942") 
+LP22 <- LP22 %>%
+  group_by(n_sample, x, y) %>%
+    summarise(total_pods = sum(total_pods, na.rm = T),
+              # samples = length(levels(bk)),
+              n_1 = sum(class_1, na.rm = T), 
+              n_2 = sum(class_2, na.rm = T), 
+              n_3 = sum(class_3, na.rm = T), 
+              n_4 = sum(class_4, na.rm = T), 
+              dis_pods = sum(n_1+n_2+n_3+n_4, na.rm = T ), 
+              inc = (dis_pods/total_pods*100), 
+              SDP = ((n_3+n_4)/total_pods*100), 
+              DSI = ((n_1+n_2*2+n_3*3+n_4*4)/(total_pods*4/100)), 
+              )%>% ungroup()
+
+GD22 <- rio::import("https://docs.google.com/spreadsheets/d/1T6qTBM1SvlUrt_GGYvd8u1eHY2d9NZKCeP5a-wj-T9k/edit?gid=1254902510#gid=1254902510") 
+GD22 <- GD22 %>%
+  group_by(n_sample, x, y) %>%
+    summarise(total_pods = sum(total_pods, na.rm = T),
+              # samples = length(levels(bk)),
+              n_1 = sum(class_1, na.rm = T), 
+              n_2 = sum(class_2, na.rm = T), 
+              n_3 = sum(class_3, na.rm = T), 
+              n_4 = sum(class_4, na.rm = T), 
+              dis_pods = sum(n_1+n_2+n_3+n_4, na.rm = T ), 
+              inc = (dis_pods/total_pods*100), 
+              SDP = ((n_3+n_4)/total_pods*100), 
+              DSI = ((n_1+n_2*2+n_3*3+n_4*4)/(total_pods*4/100)), 
+              ) %>% ungroup()
+
+GCA24 <- rio::import("https://docs.google.com/spreadsheets/d/1T6qTBM1SvlUrt_GGYvd8u1eHY2d9NZKCeP5a-wj-T9k/edit?gid=1790582123#gid=1790582123") 
+
+
+GCA24 <- GCA24 %>%
+  group_by(n_sample, x, y) %>%
+    summarise(total_pods = sum(total_pods, na.rm = T),
+              # samples = length(levels(bk)),
+              n_1 = sum(class_1, na.rm = T), 
+              n_2 = sum(class_2, na.rm = T), 
+              n_3 = sum(class_3, na.rm = T), 
+              n_4 = sum(class_4, na.rm = T), 
+              dis_pods = sum(n_1+n_2+n_3+n_4, na.rm = T ), 
+              inc = (dis_pods/total_pods*100), 
+              SDP = ((n_3+n_4)/total_pods*100), 
+              DSI = ((n_1+n_2*2+n_3*3+n_4*4)/(total_pods*4/100)), 
+              ) %>% ungroup()
+
+GCB24 <- rio::import("https://docs.google.com/spreadsheets/d/1T6qTBM1SvlUrt_GGYvd8u1eHY2d9NZKCeP5a-wj-T9k/edit?gid=2059671979#gid=2059671979") 
+GCB24 <- GCB24 %>%
+  group_by(n_sample, x, y) %>%
+    summarise(total_pods = sum(total_pods, na.rm = T),
+              # samples = length(levels(bk)),
+              n_1 = sum(class_1, na.rm = T), 
+              n_2 = sum(class_2, na.rm = T), 
+              n_3 = sum(class_3, na.rm = T), 
+              n_4 = sum(class_4, na.rm = T), 
+              dis_pods = sum(n_1+n_2+n_3+n_4, na.rm = T ), 
+              inc = (dis_pods/total_pods*100), 
+              SDP = ((n_3+n_4)/total_pods*100), 
+              DSI = ((n_1+n_2*2+n_3*3+n_4*4)/(total_pods*4/100)), 
+              ) %>% ungroup()
+
+
+```
+
+Plot the incidence at individual plot
+```{r}
+combined_data <- rbind(
+  transform(LP21, field = "Field 4"),
+  transform(LT21, field = "Field 5"),
+  transform(LP22, field = "Field 6"),
+  transform(GD22, field = "Field 7"),
+  transform(GCA24, field = "Field 8"),
+  transform(GCB24, field = "Field 9")
+)
+
+mean_values <- combined_data %>%
+  group_by(field) %>%
+  summarize(mean_inc = mean(inc, na.rm = TRUE))
+
+mean_field4 <- combined_data %>%
+  group_by(field) %>%
+   filter(field=="Field 4") %>%
+  summarize(mean_inc = mean(inc, na.rm = TRUE))
+
+mean_field5 <- combined_data %>%
+  group_by(field) %>%
+   filter(field=="Field 5") %>%
+  summarize(mean_inc = mean(inc, na.rm = TRUE))
+
+mean_field6 <- combined_data %>%
+  group_by(field) %>%
+   filter(field=="Field 6") %>%
+  summarize(mean_inc = mean(inc, na.rm = TRUE))
+
+mean_field7 <- combined_data %>%
+  group_by(field) %>%
+   filter(field=="Field 7") %>%
+  summarize(mean_inc = mean(inc, na.rm = TRUE))
+
+mean_field8 <- combined_data %>%
+  group_by(field) %>%
+   filter(field=="Field 8") %>%
+  summarize(mean_inc = mean(inc, na.rm = TRUE))
+
+mean_field9 <- combined_data %>%
+  group_by(field) %>%
+   filter(field=="Field 9") %>%
+  summarize(mean_inc = mean(inc, na.rm = TRUE))
+
+```
+
+```{r}
+combined_data %>% 
+  filter(field=="Field 4") %>% 
+ggplot(aes(x, y, label = inc, fill = inc)) +
+  geom_tile() +
+  theme_void() +
+   # geom_text(aes(label = round(inc, 1)), size = 3, color = "black") +
+  scale_fill_gradient2(low = "gray98", mid = "darkred", high = "black",
+                       midpoint = 50,
+                       name = "Incidence (%)", 
+                       labels = c("0", "100"),
+                       limits = c(0, 100),
+                       breaks = c(0, 100)) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 12),  # Adjust strip text size
+    plot.margin = margin(0, 0, 0, 0, "cm") # Remove plot margins for tight layout
+  ) 
+
+# ggsave(w=100,h=100, units="mm", dpi = 300, "Manuscript/plot/paper/plot4.jpg")
+
+combined_data %>% 
+  filter(field=="Field 5") %>% 
+ggplot(aes(x, y, label = inc, fill = inc)) +
+  geom_tile() +
+  theme_void() +
+   # geom_text(aes(label = round(inc, 1)), size = 3, color = "black") +
+  scale_fill_gradient2(low = "gray98", mid = "darkred", high = "black",
+                       midpoint = 50,
+                       name = "Incidence (%)", 
+                       labels = c("0", "100"),
+                       limits = c(0, 100),
+                       breaks = c(0, 100)) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 12),  # Adjust strip text size
+    plot.margin = margin(0, 0, 0, 0, "cm") # Remove plot margins for tight layout
+  ) 
+
+# ggsave(w=100,h=100, units="mm", dpi = 300, "Manuscript/plot/paper/plot5.jpg")
+
+
+combined_data %>% 
+  filter(field=="Field 6") %>% 
+ggplot(aes(x, y, label = inc, fill = inc)) +
+  geom_tile() +
+  theme_void() +
+  scale_fill_gradient2(low = "gray98", mid = "darkred", high = "black",
+                       midpoint = 50,
+                       name = "Incidence (%)", 
+                       labels = c("0", "100"),
+                       limits = c(0, 100),
+                       breaks = c(0, 100)) +
+  theme(legend.position = "none",
+    strip.text = element_text(size = 12),  
+    plot.margin = margin(0, 0, 0, 0, "cm")) 
+
+# ggsave(w=320,h=120, units="mm", dpi = 300, "Manuscript/plot/paper/plot6.jpg")
+
+combined_data %>% 
+  filter(field=="Field 7") %>% 
+ggplot(aes(x, y, label = inc, fill = inc)) +
+  geom_tile() +
+  theme_void() +
+  scale_fill_gradient2(low = "gray98", mid = "darkred", high = "black",
+                       midpoint = 50,
+                       name = "Incidence (%)", 
+                       labels = c("0", "100"),
+                       limits = c(0, 100),
+                       breaks = c(0, 100)) +
+  theme(legend.position = "none",
+    strip.text = element_text(size = 12),  
+    plot.margin = margin(0, 0, 0, 0, "cm")) 
+
+# ggsave(w=100,h=80, units="mm", dpi = 300, "Manuscript/plot/paper/plot7.jpg")
+
+combined_data %>% 
+  filter(field=="Field 8") %>% 
+ggplot(aes(x, y, label = inc, fill = inc)) +
+  geom_tile() +
+  theme_void() +
+  scale_fill_gradient2(low = "gray98", mid = "darkred", high = "black",
+                       midpoint = 50,
+                       name = "Incidence (%)", 
+                       labels = c("0", "100"),
+                       limits = c(0, 100),
+                       breaks = c(0, 100)) +
+  theme(legend.position = "none",
+    strip.text = element_text(size = 12),  
+    plot.margin = margin(0, 0, 0, 0, "cm")) 
+
+# ggsave(w=120,h=120, units="mm", dpi = 300, "Manuscript/plot/paper/plot8.jpg")
+
+combined_data %>% 
+  filter(field=="Field 9") %>% 
+ggplot(aes(x, y, label = inc, fill = inc)) +
+  geom_tile() +
+  theme_void() +
+  scale_fill_gradient2(low = "gray98", mid = "darkred", high = "black",
+                       midpoint = 50,
+                       name = "Incidence (%)", 
+                       labels = c("0", "100"),
+                       limits = c(0, 100),
+                       breaks = c(0, 100)) +
+   theme(
+    legend.position = "right",
+    legend.key.size = unit(1.5, "cm"),  # Increase the size of the legend keys
+    legend.text = element_text(size = 18),  # Increase text size in the legend
+    legend.title = element_text(size = 20),  # Increase the title size
+    strip.text = element_text(size = 12),
+    plot.margin = margin(0, 0, 0, 0, "cm")
+  )
+
+# ggsave(w=180,h=100, units="mm", dpi = 300, "Manuscript/plot/paper/plot9.jpg")
+
+```
+
+
+## 3.2.2. Descriptive Statistics
+
+```{r}
+summary_table <- combined_data %>%
+   # mutate(inc= round(inc, digits = 0)) %>%
+  group_by(field) %>%
+  summarize(
+    n = n(),
+    median_pods = median(total_pods, na.rm = TRUE),
+    range_pods = paste(min(total_pods, na.rm = TRUE), "-", max(total_pods, na.rm = TRUE,digits = 0)),
+    mean_inc = mean(inc, na.rm = TRUE),
+   range_inc = paste0(round(min(inc, na.rm = TRUE), 1), " - ", round(max(inc, na.rm = TRUE), 1)),
+    variance_inc = var(inc, na.rm = TRUE),
+    sd_inc = sd(inc, na.rm = TRUE),
+    median_inc = median(inc, na.rm = TRUE),
+  ) 
+
+Table_sum <- kable(summary_table, 
+      col.names = c("Field", "N", "Median Sample", "Range (Min - Max)",  
+                    "Mean Incidence (%)","Range incidence (Min - Max)", "Variance", "Standard Deviation", 
+                    "Median Incidence"),
+      digits = 1) %>%
+  kable_styling(
+    bootstrap_options = c("striped", 
+                          # "hover", "condensed",
+                          "responsive"
+                          ),
+                # full_width = F,
+                position = "center") %>%
+  # column_spec(2:9, width = "10em", border_right = TRUE) %>%  # Adjust column widths and add borders
+  row_spec(0, bold = TRUE, background = "#D3D3D3") 
+
+Table_sum
+
+```
+
+In all the small-plot, the variance is higher than the mean.But not in field 9\
+If the variance is similar to the mean, the distribution is likely random. If the variance is much smaller than the mean, the distribution may be regular (evenly spaced, or uniform).
+
+## 3.2.3. Dispersion indexes
+
+```{r}
+LP21_inc <-  LP21 %>% 
+  select("n_sample","x", "y", "inc")|> 
+  mutate(inc= round(inc, digits = 0)) %>%
+  mutate(i=n_sample) %>% ungroup()
+
+inc_LP21 <- LP21_inc%>%
+  mutate(n = 100 , i = inc)  %>%
+  epiphy::incidence(mapping(x = x, y = y,i = inc))
+
+
+LT21_inc <-  LT21 %>% 
+  select("n_sample","x", "y", "inc")|> 
+  mutate(inc= round(inc, digits = 0)) %>%
+  mutate(i=n_sample) %>% ungroup()
+
+inc_LT21 <- LT21_inc%>%
+  mutate(n = 100 , i = inc)  %>%
+  epiphy::incidence(mapping(x = x, y = y,i = inc))
+
+
+LP22_inc <-  LP22 %>% 
+  select("n_sample","x", "y", "inc")|> 
+  mutate(inc= round(inc, digits = 0)) %>%
+  mutate(i=n_sample) %>% ungroup()
+
+inc_LP22 <- LP22_inc%>%
+  mutate(n = 100 , i = inc)  %>%
+  epiphy::incidence(mapping(x = x, y = y,i = inc))
+
+GD22_inc <-  GD22 %>% 
+  select("n_sample","x", "y", "inc")|> 
+  mutate(inc= round(inc, digits = 0)) %>%
+  mutate(i=n_sample) %>% ungroup()
+
+inc_GD22 <- GD22_inc%>%
+  mutate(n = 100 , i = inc)  %>%
+  epiphy::incidence(mapping(x = x, y = y,i = inc))
+
+GCA24_inc <-  GCA24 %>% 
+  select("n_sample","x", "y", "inc")|> 
+  mutate(inc= round(inc, digits = 0)) %>%
+  mutate(i=n_sample) %>% ungroup()
+
+inc_GCA24 <- GCA24_inc%>%
+  mutate(n = 100 , i = inc)  %>%
+  epiphy::incidence(mapping(x = x, y = y,i = inc))
+
+GCB24_inc <-  GCB24 %>% 
+  select("n_sample","x", "y", "inc")|> 
+  mutate(inc= round(inc, digits = 0)) %>%
+  mutate(i=n_sample) %>% ungroup()
+
+inc_GCB24 <- GCB24_inc%>%
+  mutate(n = 100 , i = inc)  %>%
+  epiphy::incidence(mapping(x = x, y = y,i = inc))
+
+```
+
+```{r}
+z <- inc_LP21$data$i
+mor_LP21 <- dispindmorisita(z)
+mor_LP21
+
+z <- inc_LT21$data$i
+mor_LT21 <- dispindmorisita(z)
+mor_LT21
+
+z <- inc_LP22$data$i
+mor_LP22 <- dispindmorisita(z)
+mor_LP22
+
+z <- inc_GD22$data$i
+mor_GD22 <- dispindmorisita(z)
+mor_GD22
+
+z <- inc_GCA24$data$i
+mor_GCA24 <- dispindmorisita(z)
+mor_GCA24
+
+z <- inc_GCB24$data$i
+mor_GCB24 <- dispindmorisita(z)
+mor_GCB24
+
+mor_LP21
+mor_LT21
+mor_LP22
+mor_GD22
+mor_GCA24
+mor_GCB24
+```
+
+Morisita's coefficient of dispersion (M) (Version for incidence data)
+
+## 3.2.4. Spatial autocorrelation
+
+Create a list of neighbors and the weights for each field LP21
+
+```{r}
+neighbors_list <- cell2nb(5,5, type = "queen", torus = F)# torus should be T or F (T consider the edge effects)?? and type "queen" indicate the type of neighbour relation 
+neighbors_list
+weights_list <- nb2listw(neighbors_list, style = "W")#For style="W", the weights vary between unity divided by the largest and smallest numbers of neighbours, and the sums of weights for each areal entity are unity
+
+moran_test <- moran.test(LP21$inc, listw = weights_list)
+moran_test
+moran.plot(x = LP21$inc, listw = nb2listw(neighbors_list, style = "W"))
+
+moran(x = LP21$inc, # numeric vector
+      listw = weights_list, # the nb list
+      n = 25, # number of zones
+      S0 = Szero(weights_list)) # global sum of weights
+
+correl_I <- sp.correlogram(neighbors_list, LP21$inc, 
+                           order = 4,
+                           method = "I",  
+                           zero.policy = TRUE)
+
+df_correl <- data.frame(correl_I$res) |> 
+  mutate(lag = c(1:4))
+
+AC_field4 <- df_correl |>
+  ggplot(aes(lag, X1)) +
+  geom_col(fill = "darkred") +
+  scale_x_continuous(n.breaks =5) +
+  labs(subtitle = "Field 4") +
+  theme(panel.grid.minor = element_blank())+
+  theme(plot.subtitle = element_text(hjust = 0.5,vjust = -1.5, size = 14))+
+  theme_bw()+
+  labs(x = "Distance lag", y = "Autocorrelation coefficients")
+
+AC_field4
+
+```
+
+LT21
+
+```{r}
+neighbors_list <- cell2nb(5,5, type = "queen", torus = F)# torus should be T or F (T consider the edge effects)?? and type "queen" indicate the type of neighbour relation 
+neighbors_list
+weights_list <- nb2listw(neighbors_list, style = "W")#For style="W", the weights vary between unity divided by the largest and smallest numbers of neighbours, and the sums of weights for each areal entity are unity
+
+moran_test <- moran.test(LT21$inc, listw = weights_list)
+moran_test
+moran.plot(x = LT21$inc, listw = nb2listw(neighbors_list, style = "W"))
+
+moran(x = LT21$inc, # numeric vector
+      listw = weights_list, # the nb list
+      n = 25, # number of zones
+      S0 = Szero(weights_list)) # global sum of weights
+
+correl_I <- sp.correlogram(neighbors_list, LT21$inc, 
+                           order = 4,
+                           method = "I",  
+                           zero.policy = TRUE)
+
+df_correl <- data.frame(correl_I$res) |> 
+  mutate(lag = c(1:4))
+
+AC_field5 <- df_correl |>
+  ggplot(aes(lag, X1)) +
+  geom_col(fill = "darkred") +
+  scale_x_continuous(n.breaks =4) +
+  labs(subtitle = "Field 5") +
+  theme(panel.grid.minor = element_blank())+
+  theme(plot.subtitle = element_text(hjust = 0.5,vjust = -1.5, size = 14))+
+  theme_bw()+
+  labs(x = "Distance lag", y = "Autocorrelation coefficients")
+
+AC_field5
+```
+
+LP22
+
+```{r}
+neighbors_list <- cell2nb(6,16, type = "queen", torus = F)# torus should be T or F (T consider the edge effects)?? and type "queen" indicate the type of neighbour relation 
+neighbors_list
+weights_list <- nb2listw(neighbors_list, style = "W")#For style="W", the weights vary between unity divided by the largest and smallest numbers of neighbours, and the sums of weights for each areal entity are unity
+
+moran_test <- moran.test(LP22$inc, listw = weights_list)
+moran_test
+moran.plot(x = LP22$inc, listw = nb2listw(neighbors_list, style = "W"))
+
+moran(x = LP22$inc, # numeric vector
+      listw = weights_list, # the nb list
+      n = 96, # number of zones
+      S0 = Szero(weights_list)) # global sum of weights
+
+correl_I <- sp.correlogram(neighbors_list, LP22$inc, 
+                           order = 8,
+                           method = "I",  
+                           zero.policy = TRUE)
+
+df_correl <- data.frame(correl_I$res) |> 
+  mutate(lag = c(1:8))
+
+AC_field6 <- df_correl |>
+  ggplot(aes(lag, X1)) +
+  geom_col(fill = "darkred") +
+  scale_x_continuous(n.breaks =10) +
+  labs(subtitle = "Field 6") +
+  theme(panel.grid.minor = element_blank())+
+  theme(plot.subtitle = element_text(hjust = 0.5,vjust = -1.5, size = 14))+
+  theme_bw()+
+  labs(x = "Distance lag", y = "Autocorrelation coefficients")
+
+AC_field6
+```
+
+GD22
+```{r}
+neighbors_list <- cell2nb(5,4, type = "queen", torus = F)# torus should be T or F (T consider the edge effects)?? and type "queen" indicate the type of neighbour relation 
+neighbors_list
+weights_list <- nb2listw(neighbors_list, style = "W")#For style="W", the weights vary between unity divided by the largest and smallest numbers of neighbours, and the sums of weights for each areal entity are unity
+
+moran_test <- moran.test(GD22$inc, listw = weights_list)
+moran_test
+moran.plot(x = GD22$inc, listw = nb2listw(neighbors_list, style = "W"))
+
+moran(x = GD22$inc, # numeric vector
+      listw = weights_list, # the nb list
+      n = 20, # number of zones
+      S0 = Szero(weights_list)) # global sum of weights
+
+correl_I <- sp.correlogram(neighbors_list, GD22$inc, 
+                           order = 4,
+                           method = "I",  
+                           zero.policy = TRUE)
+
+df_correl <- data.frame(correl_I$res) |> 
+  mutate(lag = c(1:4))
+
+AC_field7 <- df_correl |>
+  ggplot(aes(lag, X1)) +
+  geom_col(fill = "darkred") +
+  scale_x_continuous(n.breaks =5) +
+  labs(subtitle = "Field 7") +
+  theme(panel.grid.minor = element_blank())+
+  theme(plot.subtitle = element_text(hjust = 0.5,vjust = -1.5, size = 14))+
+  theme_bw()+
+  labs(x = "Distance lag", y = "Autocorrelation coefficients")
+
+AC_field7
+```
+
+GCA24
+```{r}
+neighbors_list <- cell2nb(6,6, type = "queen", torus = F)# torus should be T or F (T consider the edge effects)?? and type "queen" indicate the type of neighbour relation 
+neighbors_list
+weights_list <- nb2listw(neighbors_list, style = "W")#For style="W", the weights vary between unity divided by the largest and smallest numbers of neighbours, and the sums of weights for each areal entity are unity
+
+moran_test <- moran.test(GCA24$inc, listw = weights_list)
+moran_test
+moran.plot(x = GCA24$inc, listw = nb2listw(neighbors_list, style = "W"))
+
+moran(x = GCA24$inc, # numeric vector
+      listw = weights_list, # the nb list
+      n = 25, # number of zones
+      S0 = Szero(weights_list)) # global sum of weights
+
+correl_I <- sp.correlogram(neighbors_list, GCA24$inc, 
+                           order = 5,
+                           method = "I",  
+                           zero.policy = TRUE)
+
+df_correl <- data.frame(correl_I$res) |> 
+  mutate(lag = c(1:5))
+
+AC_field8 <- df_correl |>
+  ggplot(aes(lag, X1)) +
+  geom_col(fill = "darkred") +
+  scale_x_continuous(n.breaks =5) +
+  labs(subtitle = "Field 8") +
+  theme(panel.grid.minor = element_blank())+
+  theme(plot.subtitle = element_text(hjust = 0.5,vjust = -1.5, size = 14))+
+  theme_bw()+
+  labs(x = "Distance lag", y = "Autocorrelation coefficients")
+
+AC_field8
+```
+
+GCB24
+```{r}
+neighbors_list <- cell2nb(7,5, type = "queen", torus = F)# torus should be T or F (T consider the edge effects)?? and type "queen" indicate the type of neighbour relation 
+neighbors_list
+weights_list <- nb2listw(neighbors_list, style = "W")#For style="W", the weights vary between unity divided by the largest and smallest numbers of neighbours, and the sums of weights for each areal entity are unity
+
+moran_test <- moran.test(GCB24$inc, listw = weights_list)
+moran_test
+moran.plot(x = GCB24$inc, listw = nb2listw(neighbors_list, style = "W"))
+
+moran(x = GCB24$inc, # numeric vector
+      listw = weights_list, # the nb list
+      n = 25, # number of zones
+      S0 = Szero(weights_list)) # global sum of weights
+
+correl_I <- sp.correlogram(neighbors_list, GCB24$inc, 
+                           order = 5,
+                           method = "I",  
+                           zero.policy = TRUE)
+
+df_correl <- data.frame(correl_I$res) |> 
+  mutate(lag = c(1:5))
+
+AC_field9 <- df_correl |>
+  ggplot(aes(lag, X1)) +
+  geom_col(fill = "darkred") +
+  scale_x_continuous(n.breaks =6) +
+  labs(subtitle = "Field 9") +
+  theme(panel.grid.minor = element_blank())+
+  theme(plot.subtitle = element_text(hjust = 0.5,vjust = -1.5, size = 14))+
+  theme_bw()+
+  labs(x = "Distance lag", y = "Autocorrelation coefficients")
+
+AC_field9
+```
+
+Figure Autocorrelation
+```{r}
+combined_plot <- (AC_field4 + AC_field5 + AC_field6) / 
+                 (AC_field7 + AC_field8 + AC_field9) +
+  plot_annotation(
+    title = NULL,
+    subtitle = NULL,
+    caption = NULL,
+    tag_levels = NULL,
+    theme = theme(
+      plot.margin = margin(10, 10, 10, 10),
+      axis.title.y = element_text(size = 14, hjust = 0.5),  # Single y label
+      axis.title.x = element_text(size = 14, hjust = 0.5)   # Single x label
+    )
+  ) &
+  labs(
+    y = "Autocorrelation coefficients",
+    x = "Distance lag"
+  )
+combined_plot
+
+# ggsave(w=200,h=150, units="mm", dpi = 300, "plot/paper/autocorrleation_large_Scale.jpg")
+```
+
+
+## 3.2.5. SADIE
+
+```{r}
+LP21_SADIE <- LP21 %>% select("x", "y", "inc")
+LT21_SADIE <- LT21 %>% select("x", "y", "inc")
+LP22_SADIE <- LP22 %>% select("x", "y", "inc")
+GD_SADIE <- GD22 %>% select("x", "y", "inc") 
+GCA_SADIE <- GCA24 %>% select("x", "y", "inc") 
+GCB_SADIE <- GCB24 %>% select("x", "y", "inc") 
+
+my_res_LP21 <- sadie(LP21_SADIE, 
+                     )
+summary(my_res_LP21)
+
+my_res_LT21 <- sadie(LT21_SADIE,
+                     )
+summary(my_res_LT21)
+
+my_res_LP22 <- sadie(LP22_SADIE,
+                    )
+summary(my_res_LP22)
+
+my_res_GD22 <- sadie(GD_SADIE,
+                     )
+summary(my_res_GD22)
+
+my_res_GCA24 <- sadie(GCA_SADIE,
+                      )
+summary(my_res_GCA24)
+plot(my_res_GCA24)
+
+my_res_GCB24 <- sadie(GCB_SADIE,
+                      )
+summary(my_res_GCB24)
+
+plot(my_res_LT21)
+plot(my_res_LT21, isoclines = TRUE)
+plot(my_res_LP21)
+plot(my_res_LP21, isoclines = TRUE)
+plot(my_res_LP22)
+plot(my_res_LP22, isoclines = TRUE)
+plot(my_res_GD22)
+plot(my_res_GD22, isoclines = TRUE)
+plot(my_res_GCA24)
+plot(my_res_GCA24, isoclines = TRUE)
+plot(my_res_GCB24)
+plot(my_res_GCB24, isoclines = TRUE)
+
+g1 <-  grid.grabExpr(plot(my_res_LT21))
+g2 <-  grid.grabExpr(plot(my_res_LT21, isoclines = TRUE))
+g3 <-  grid.grabExpr(plot(my_res_LP21))
+g4 <-  grid.grabExpr(plot(my_res_LP21, isoclines = TRUE))
+g5 <-  grid.grabExpr(plot(my_res_LP22))
+g6 <-  grid.grabExpr(plot(my_res_LP22, isoclines = TRUE))
+g7 <-  grid.grabExpr(plot(my_res_GD22))
+g8 <-  grid.grabExpr(plot(my_res_GD22, isoclines = TRUE))
+g9 <-  grid.grabExpr(plot(my_res_GCA24))
+g10 <-  grid.grabExpr(plot(my_res_GCA24, isoclines = TRUE))
+g11 <-  grid.grabExpr(plot(my_res_GCB24))
+g12 <-  grid.grabExpr(plot(my_res_GCB24, isoclines = TRUE))
+
+col_titles <- arrangeGrob(
+  textGrob("Field 4", gp = gpar(fontsize = 14, fontface = "bold"), hjust = 1),
+  textGrob("Field 5", gp = gpar(fontsize = 14, fontface = "bold"), hjust = 1),
+  textGrob("Field 6", gp = gpar(fontsize = 14, fontface = "bold"), hjust = 1),
+  ncol = 3
+)
+
+SADIE <- grid.arrange(
+  col_titles,
+  arrangeGrob(g1, g3, g5, g2,g4,g6, ncol = 3),
+  heights = c(0.025, 1) # Adjust height for the title row
+)
+
+# ggsave(w=400,h=200,plot = SADIE, units="mm", dpi = 300, "Manuscript/plot/paper/SADIE_large-scale1.jpg")
+
+
+col_titles <- arrangeGrob(
+  textGrob("Field 7", gp = gpar(fontsize = 14, fontface = "bold"), hjust = 1),
+  textGrob("Field 8", gp = gpar(fontsize = 14, fontface = "bold"), hjust = 1),
+  textGrob("Field 9", gp = gpar(fontsize = 14, fontface = "bold"), hjust = 1),
+  ncol = 3
+)
+
+SADIE <- grid.arrange(
+  col_titles,
+  arrangeGrob(g7,g9,g11,g8,g10,g12, ncol = 3),
+  heights = c(0.025, 1) # Adjust height for the title row
+)
+
+# ggsave(w=400,h=200,plot = SADIE, units="mm", dpi = 300, "Manuscript/plot/paper/SADIE_large-scale2.jpg")
+
+
+```
+
+
+## Field data
+# Power Law
+Data collection from commercial fields between 2015 to 2024 - field with more than 5 samples
+
+```{r}
+dat <- rio::import("https://docs.google.com/spreadsheets/d/1T6qTBM1SvlUrt_GGYvd8u1eHY2d9NZKCeP5a-wj-T9k/edit?gid=131713490#gid=131713490")%>% 
+group_by(id) %>%
+  ungroup()
+
+```
+
+```{r}
+combined <- dat %>%
+  select(id, inc)
+```
+
+Table
+```{r}
+combined %>%
+  group_by(id) %>%
+  summarise(n_samples = n())
+
+combined %>%
+  group_by(id) %>%               # Group by field (id)
+  summarize(n_samples = n()) %>% # Count the number of samples per field
+  dplyr::count(n_samples) %>%
+  rename(frequency = n)          # Rename the count
+
+
+combined %>%
+  group_by(id) %>%
+  summarise(media_inc = mean(inc)) %>%
+  mutate(categoria = case_when(
+    media_inc >= 0 & media_inc < 6 ~ "0 a 6",
+    media_inc >= 6 ~ "mayor a 6"
+  )) %>%
+  dplyr::count(categoria, name = "n_lotes")  # Cuenta los lotes en cada categoría
+
+```
+
+142 fields in study, 109 less than 6%, and 33 higher than 6%
+
+```{r}
+combined2 <-combined %>% 
+  group_by(id) %>%
+  filter(mean(inc) < 6) %>%
+  ungroup()
+```
+
+```{r}
+combined2 %>%
+  mutate(id = fct_reorder(id, inc)) %>%
+  ggplot(aes(id, inc))+
+  geom_boxplot()+
+  labs(x="fields", 
+       y = "Incidencia (%)") +
+   theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+```
+
+```{r}
+summary_df <- combined2 %>%
+  group_by(id) %>%
+  summarize(mean_inc = mean(inc/100), 
+            var_inc = var(inc/100),
+            n_samples = n(),     # Number of samples per id
+    binomial_var = (mean_inc * (1 - mean_inc)) /(n_samples))%>%
+  ungroup()
+
+bpl_model <- lm(log(var_inc) ~ log(binomial_var), data = summary_df)
+summary(bpl_model)
+
+
+less_inc <- summary_df %>% 
+ggplot(aes(x = log(binomial_var), y = log(var_inc))) +
+# ggplot(aes(x = log(mean_inc), y = log(var_inc))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "grey20") +
+  geom_abline(intercept = -4.5, slope = 1, linetype = "dashed", color = "grey70", size = 1) + 
+  labs(x = "ln(binomial variance)", y = "ln(observed variance)",
+       title = "Fields < 6% smut incidence") +
+  theme_bw()+ 
+  annotate("text", x = max(log(summary_df$binomial_var)) - 0, 
+           y = min(log(summary_df$var_inc)) + 0, 
+           label = expression(italic(b) == 1.36 ~ ", " ~ ln(italic(A)[p]) == -1.10),
+           hjust = 1, vjust = 0.5, size = 4)
+
+less_inc
+
+summary(bpl_model)
+coef(bpl_model)
+
+```
+
+
+```{r}
+combined3 <-combined %>% 
+  group_by(id) %>%
+  filter(mean(inc) > 6) %>%
+  ungroup()
+
+```
+
+```{r}
+combined3 %>%
+  mutate(id = fct_reorder(id, inc)) %>%
+  ggplot(aes(id, inc))+
+  geom_boxplot()+
+  labs(x="fields", 
+       y = "Incidencia (%)") +
+   theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+```
+
+```{r}
+summary_df <- combined3 %>%
+  group_by(id) %>%
+  summarize(mean_inc = mean(inc/100), 
+            var_inc = var(inc/100),
+            n_samples = n(),     # Number of samples per id
+    binomial_var = (mean_inc * (1 - mean_inc)) /(n_samples))%>%
+  ungroup()
+
+bpl_model <- lm(log(var_inc) ~ log(binomial_var), data = summary_df)
+
+summary(bpl_model)
+coef(bpl_model)
+
+
+high_inc <- summary_df %>% 
+ggplot(aes(x = log(binomial_var), y = log(var_inc))) +
+  geom_point() +
+  stat_smooth(method = "lm", se = FALSE, fullrange=TRUE, color = "grey20") +
+  geom_abline(intercept = -1.75, slope = 1, linetype = "dashed", color = "grey70", size = 1) + 
+  labs(x = "ln(binomial variance)", y = "ln(observed variance)",
+       title = "Fields >6% smut incidence") +
+  theme_bw()+
+  annotate("text", x = max(log(summary_df$binomial_var)) - 0, 
+           y = min(log(summary_df$var_inc)) - 0, 
+           label = expression(italic(b) == 0.82 ~ ", " ~ ln(italic(A)[p]) == -2.67),
+           hjust = 1, vjust = 0.5, size = 4)
+
+high_inc
+
+summary(bpl_model)
+
+```
+
+# Image Binary power law
+```{r}
+less_inc|high_inc
+
+# ggsave(w=175,h=100, units="mm", dpi = 300, "Manuscript/plot/paper/BPL-6inc2.jpg")
+
+```
+
