@@ -104,7 +104,8 @@ GD_inc<- GD_df |>
 
 ```
 
-## 3.1.1. Disease incidence 
+## 3.1.1. Disease incidence
+
 Plot the incidence
 
 ```{r}
@@ -143,6 +144,7 @@ ggplot(combined_data, aes(x, y, label = inc, fill = inc)) +
 ```
 
 ## Descriptive Statistics
+
 ```{r}
 combined_data1 <- rbind(
   transform(Ball, field = "Field 1"),
@@ -252,9 +254,7 @@ mor_VM
 mor_GD
 ```
 
-Morisita's coefficient of dispersion (M) (Version for incidence data) 1.60, 2.09, 1.134, respectivelly
-Follow this index, all the small-plot corresponds to an aggregate pattern
-
+Morisita's coefficient of dispersion (M) (Version for incidence data) 1.60, 2.09, 1.134, respectivelly Follow this index, all the small-plot corresponds to an aggregate pattern
 
 ## 3.1.3.Spatial autocorrelation
 
@@ -306,8 +306,8 @@ moran(x = GD$inc, # numeric vector
 
 If the data is leptokurtic (K \> 3), it might suggest that there are some hotspots or cold spots (clusters of high or low values) in the spatial dataset. On the other hand, platykurtic (K \< 3) data might indicate a more even spread without pronounced clusters.
 
-
 Spatial correlogram
+
 ```{r}
 correl_I <- sp.correlogram(neighbors_list, Ball$inc, 
                            order = 10,
@@ -390,7 +390,6 @@ correl_Ball|correl_VM|correl_GD
 
 # ggsave(w=150,h=60, units="mm", dpi = 300, "plot/paper/autocorrleation_small_Scale.jpg")
 ```
-
 
 ## 3.1.4. SADIE
 
@@ -547,6 +546,7 @@ GCB24 <- GCB24 %>%
 ```
 
 Plot the incidence at individual plot
+
 ```{r}
 combined_data <- rbind(
   transform(LP21, field = "Field 4"),
@@ -709,7 +709,6 @@ ggplot(aes(x, y, label = inc, fill = inc)) +
 # ggsave(w=180,h=100, units="mm", dpi = 300, "Manuscript/plot/paper/plot9.jpg")
 
 ```
-
 
 ## 3.2.2. Descriptive Statistics
 
@@ -961,6 +960,7 @@ AC_field6
 ```
 
 GD22
+
 ```{r}
 neighbors_list <- cell2nb(5,4, type = "queen", torus = F)# torus should be T or F (T consider the edge effects)?? and type "queen" indicate the type of neighbour relation 
 neighbors_list
@@ -997,6 +997,7 @@ AC_field7
 ```
 
 GCA24
+
 ```{r}
 neighbors_list <- cell2nb(6,6, type = "queen", torus = F)# torus should be T or F (T consider the edge effects)?? and type "queen" indicate the type of neighbour relation 
 neighbors_list
@@ -1033,6 +1034,7 @@ AC_field8
 ```
 
 GCB24
+
 ```{r}
 neighbors_list <- cell2nb(7,5, type = "queen", torus = F)# torus should be T or F (T consider the edge effects)?? and type "queen" indicate the type of neighbour relation 
 neighbors_list
@@ -1069,6 +1071,7 @@ AC_field9
 ```
 
 Figure Autocorrelation
+
 ```{r}
 combined_plot <- (AC_field4 + AC_field5 + AC_field6) / 
                  (AC_field7 + AC_field8 + AC_field9) +
@@ -1091,7 +1094,6 @@ combined_plot
 
 # ggsave(w=200,h=150, units="mm", dpi = 300, "plot/paper/autocorrleation_large_Scale.jpg")
 ```
-
 
 ## 3.2.5. SADIE
 
@@ -1188,15 +1190,30 @@ SADIE <- grid.arrange(
 
 ```
 
-
 ## Field data
-# Power Law
+
+# Binary Power Law
+
 Data collection from commercial fields between 2015 to 2024 - field with more than 5 samples
 
 ```{r}
 dat <- rio::import("https://docs.google.com/spreadsheets/d/1T6qTBM1SvlUrt_GGYvd8u1eHY2d9NZKCeP5a-wj-T9k/edit?gid=131713490#gid=131713490")%>% 
 group_by(id) %>%
   ungroup()
+
+dat <- dat %>%
+  group_by(id, n_sample) %>%
+    summarise(total_pods = sum(total_pods, na.rm = T),
+              # samples = length(levels(bk)),
+              n_1 = sum(class_1, na.rm = T), 
+              n_2 = sum(class_2, na.rm = T), 
+              n_3 = sum(class_3, na.rm = T), 
+              n_4 = sum(class_4, na.rm = T), 
+              dis_pods = sum(n_1+n_2+n_3+n_4, na.rm = T ), 
+              inc = (dis_pods/total_pods*100), 
+              SDP = ((n_3+n_4)/total_pods*100), 
+              DSI = ((n_1+n_2*2+n_3*3+n_4*4)/(total_pods*4/100)), 
+              )%>% ungroup()
 
 ```
 
@@ -1206,6 +1223,7 @@ combined <- dat %>%
 ```
 
 Table
+
 ```{r}
 combined %>%
   group_by(id) %>%
@@ -1284,7 +1302,6 @@ coef(bpl_model)
 
 ```
 
-
 ```{r}
 combined3 <-combined %>% 
   group_by(id) %>%
@@ -1340,10 +1357,10 @@ summary(bpl_model)
 ```
 
 # Image Binary power law
+
 ```{r}
 less_inc|high_inc
 
 # ggsave(w=175,h=100, units="mm", dpi = 300, "Manuscript/plot/paper/BPL-6inc2.jpg")
 
 ```
-
